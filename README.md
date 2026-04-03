@@ -1,51 +1,99 @@
-## VidyaJaya Backend
+# ✨ VidyaJaya Contest Engine
 
-Production-ready Node.js backend using Express, PostgreSQL (via Prisma), JWT authentication, and MVC-style structure.
+🚀 **VidyaJaya** is a high-performance backend for an interactive contest platform. It features a robust quiz engine, a secure financial wallet system, and real-time competitive leaderboards.
 
-### Tech stack
+---
 
-- Node.js / Express
-- PostgreSQL with Prisma ORM
-- JWT authentication
-- Environment-based configuration
+### 🌟 Key Features
 
-### Getting started
+- 🏆 **Advanced Contest Management**: Create, list, and join contests with atomic entry fee deductions.
+- 🧠 **Randomized Quiz Engine**: 
+  - Every user gets a unique, randomized question order (Fisher-Yates shuffle).
+  - **Precision Timers**: Powered by Redis for strict 15-second per-question limits.
+- 📈 **Multi-Factor Scoring**:
+  - **Base Points**: +10 for correct answers.
+  - **Speed Bonus**: +5 for answers under 5 seconds.
+  - **Streak Bonus**: +15 for 5 consecutive correct answers.
+  - **Timeout Penalty**: -2 for exceeding the time limit.
+- 📊 **Real-time Leaderboards**: Powered by **Redis Sorted Sets** (ZSET) for sub-millisecond ranking updates.
+- 💰 **Secure Wallet & Transactions**: Atomic deposits, withdrawals, and fee payments using **Prisma Transactions**.
+- 🛡️ **Professional Anti-Cheat**: 
+  - Automated detection of answers under **500ms**.
+  - **Self-Enforcing Blocks**: Script-like behavior results in automatic user blocking.
+- 📖 **Beginner-Friendly Documentation**: Every key file includes **line-by-line comments** explaining the "How" and "Why" of the logic.
 
-1. **Install dependencies**
+---
 
+### 🛠️ Tech Stack
+
+- **Runtime**: Node.js (Express.js)
+- **Database**: PostgreSQL (via Prisma ORM)
+- **Real-time Store**: Redis
+- **Security**: JWT Authentication, Helmet, and Anti-Cheat Middleware
+- **Logging**: Morgan & Winston
+
+---
+
+### 🚦 Getting Started
+
+1. **Clone the repository**
 ```bash
+git clone <your-repo-url>
 cd VidyaJaya
+```
+
+2. **Install dependencies**
+```bash
 npm install
 ```
 
-2. **Configure environment**
-
+3. **Configure Environment Variables**
+Copy the example environment file and fill in your details:
 ```bash
 cp .env.example .env
-# then edit .env with your PostgreSQL credentials and JWT secret
 ```
 
-3. **Run Prisma migrations and generate client**
-
+4. **Setup Database**
 ```bash
 npx prisma migrate dev --name init
 npx prisma generate
 ```
 
-4. **Run the server**
-
+5. **Run the Server**
 ```bash
+# Development mode
 npm run dev
+
+# Production mode
+npm start
 ```
 
-Server defaults to `http://localhost:4000`.
+---
 
-### API overview
+### 🚥 API Overview
 
-- **Health check**: `GET /api/health`
-- **Auth**
-  - `POST /api/auth/register` – body: `{ "email": string, "password": string, "name"?: string }`
-  - `POST /api/auth/login` – body: `{ "email": string, "password": string }`
+| Method | Endpoint | Description | Auth |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Create a new account | No |
+| `POST` | `/api/contest/create` | Create a new contest | Admin |
+| `POST` | `/api/contest/join` | Join a contest (pay fee) | Yes |
+| `GET` | `/api/contest/:id/questions`| Fetch randomized questions | Yes |
+| `POST` | `/api/contest/:id/submit`| Submit answer & get points | Yes |
+| `GET` | `/api/contest/:id/leaderboard`| Get Top 10 rankings | No |
+| `GET` | `/api/wallet/balance` | Check user wallet balance | Yes |
 
-Both auth endpoints respond with a JWT token and sanitized user object.
+---
 
+### 👨‍🍳 Architecture
+
+The project follows a **Modified Clean Architecture**:
+- `/src/controllers`: Request/Response handlers.
+- `/src/services`: Business logic & Database interactions.
+- `/src/middlewares`: Security and error handling.
+- `/src/routes`: API endpoint definitions.
+- `/src/config`: Connection managers (DB, Redis, Env).
+
+---
+
+### 🛡️ Security Disclaimer
+This project includes an automated anti-cheat mechanism. Users answering consistently under **0.5s** will have their accounts automatically marked as `isBlocked: true` and will be rejected from all authenticated APIs.
