@@ -8,10 +8,120 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
+  id        Int       @id @default(autoincrement())
+  email     String?  @unique
+  password  String?
+  phone     String?
   name      String?
-  createdAt DateTime @default(now())
+  isBlocked Boolean   @default(false)
+
+  // Financial relations
+  wallet       Wallet?
+  transactions Transaction[]
+
+  // Anti-cheat relations
+  fraudLogs    FraudLog[]
+
+  // Field name matches requirement (`created_at`) while keeping the DB column
+  // as the existing `createdAt` to avoid destructive migrations.
+  created_at DateTime @default(now()) @map("createdAt")
   updatedAt DateTime @updatedAt
+
+  contests  ContestParticipant[]
+  responses Response[]
+}
+
+model Wallet {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  balance   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Transaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String   // DEPOSIT, WITHDRAW, CONTEST_FEE
+  amount    Float
+  status    String   // PENDING, SUCCESS, FAILED
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Contest {
+  id              Int       @id @default(autoincrement())
+  title           String
+  entry_fee       Float
+  prize_pool      Float
+  start_time      DateTime
+  total_questions Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  isPrizesDistributed   Boolean   @default(false)
+
+  participants    ContestParticipant[]
+  questions       Question[]
+  responses       Response[]
+  fraudLogs       FraudLog[]
+}
+
+model ContestParticipant {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  contestId Int
+  joinedAt  DateTime @default(now())
+  score     Int      @default(0)
+  streak    Int      @default(0)
+
+  user      User     @relation(fields: [userId], references: [id])
+  contest   Contest  @relation(fields: [contestId], references: [id])
+
+  @@unique([userId, contestId])
+}
+
+model Question {
+  id            Int      @id @default(autoincrement())
+  contestId     Int
+  text          String
+  options       Json     // Array of strings
+  correctAnswer String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  contest       Contest  @relation(fields: [contestId], references: [id])
+  responses     Response[]
+}
+
+model Response {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  contestId      Int
+  questionId     Int
+  selectedOption String
+  isCorrect      Boolean
+  isTimeout      Boolean  @default(false)
+  pointsEarned   Int      @default(0)
+  responseTime   Float    @default(0) // time in seconds
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id])
+  contest        Contest  @relation(fields: [contestId], references: [id])
+  question       Question @relation(fields: [questionId], references: [id])
+
+  @@unique([userId, contestId, questionId])
+}
+
+model FraudLog {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  contestId    Int
+  reason       String
+  responseTime Float
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id])
+  contest      Contest  @relation(fields: [contestId], references: [id])
 }
