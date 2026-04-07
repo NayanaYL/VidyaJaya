@@ -59,7 +59,12 @@ npx prisma migrate dev --name init
 npx prisma generate
 ```
 
-5. **Run the Server**
+5. **Seed demo data**
+```bash
+npm run seed
+```
+
+6. **Run the Server**
 ```bash
 # Development mode
 npm run dev
@@ -67,6 +72,30 @@ npm run dev
 # Production mode
 npm start
 ```
+
+---
+
+### 🚀 Production Deployment
+- Create a production `.env` from `.env.example` and set:
+  - `NODE_ENV=production`
+  - `DATABASE_URL` to your production PostgreSQL connection string
+  - `REDIS_URL` to your production Redis connection string
+  - `JWT_SECRET` to a strong secret value
+- Run migrations and generate the Prisma client in production:
+```bash
+npm run prisma:migrate
+npm run prisma:generate
+```
+- Seed any demo or test contests only in non-sensitive environments with:
+```bash
+npm run seed
+```
+- Start the server:
+```bash
+npm start
+```
+
+---
 
 ---
 

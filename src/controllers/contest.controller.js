@@ -1,7 +1,6 @@
 import httpStatus from 'http-status'; // Easy-to-read names for HTTP status codes
 import * as contestService from '../services/contest.service.js'; // The helper service for all contest events
 import * as quizService from '../services/quiz.service.js'; // The helper service for quiz answers and timing
-import * as leaderboardService from '../services/leaderboard.service.js'; // The helper service for the Redis leaderboard
 import * as prizeService from '../services/prize.service.js'; // The helper service for distributing prizes
 import { ApiError } from '../utils/apiError.js'; // Our custom error reporter
 
@@ -12,7 +11,7 @@ import { ApiError } from '../utils/apiError.js'; // Our custom error reporter
 export const createContest = async (req, res, next) => {
   try {
     // 1. Extract the data from the user's request (e.g., a form)
-    const { title, entry_fee, prize_pool, start_time, total_questions } = req.body;
+    const { title, entry_fee, prize_pool, start_time, total_questions, duration_minutes } = req.body;
     
     // 2. Simple check: Are any fields missing?
     if (!title || entry_fee === undefined || prize_pool === undefined || !start_time || total_questions === undefined) {
@@ -26,7 +25,8 @@ export const createContest = async (req, res, next) => {
       entry_fee,
       prize_pool,
       start_time,
-      total_questions
+      total_questions,
+      duration_minutes,
     });
 
     // 4. Send back a success message and the new contest data
@@ -95,8 +95,49 @@ export const joinContest = async (req, res, next) => {
     }
     if (err.message === 'Cannot join. Contest has already started.' || 
         err.message === 'User has already joined this contest' || 
-        err.message === 'Insufficient wallet balance') {
+        err.message === 'Active subscription required to join contests') {
         return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    return next(err);
+  }
+};
+
+/**
+ * submitContest: Handles full contest submission and score calculation.
+ */
+export const submitContest = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub);
+    const { contest_id, answers, time_taken } = req.body;
+
+    if (!contest_id || !Array.isArray(answers) || typeof time_taken !== 'number') {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'contest_id, answers, and time_taken are required');
+    }
+
+    const result = await contestService.submitContest(
+      userId,
+      Number(contest_id),
+      answers,
+      time_taken,
+    );
+
+    return res.status(httpStatus.OK).json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    if (
+      err.message === 'Contest has not started' ||
+      err.message === 'Contest has ended' ||
+      err.message === 'User has not joined this contest' ||
+      err.message === 'Duplicate submission not allowed' ||
+      err.message === 'Answers must be an array' ||
+      err.message === 'Duplicate question IDs in answers'
+    ) {
+      return next(new ApiError(httpStatus.BAD_REQUEST, err.message));
+    }
+    if (err.message === 'Contest not found') {
+      return next(new ApiError(httpStatus.NOT_FOUND, err.message));
     }
     return next(err);
   }
@@ -110,21 +151,49 @@ export const getQuestions = async (req, res, next) => {
     // 1. Get the contest ID from the URL (e.g., /contest/1/questions)
     const { id: contestId } = req.params;
     const userId = Number(req.user?.sub); // The logged-in user's ID
+    const page = Number(req.query.page) || 1;
+    const pageSize = Number(req.query.page_size) || 10;
 
     if (!contestId) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'contest_id is required');
     }
 
     // 2. Fetch randomized questions for this user and initialize the timer
-    const questions = await quizService.getContestQuestions(userId, Number(contestId));
+    const questions = await quizService.getContestQuestions(userId, Number(contestId), page, pageSize);
 
-    // 3. Return the questions to the user
+    // 3. Return the paginated questions to the user
     return res.status(httpStatus.OK).json({
       success: true,
       data: questions,
     });
   } catch (err) {
+    if (err.message === 'Contest not found') {
+      return next(new ApiError(httpStatus.NOT_FOUND, err.message));
+    }
     if (err.message === 'No questions found for this contest') {
+      return next(new ApiError(httpStatus.NOT_FOUND, err.message));
+    }
+    return next(err);
+  }
+};
+
+export const getSubmissionReview = async (req, res, next) => {
+  try {
+    const { id: contestId } = req.params;
+    const userId = Number(req.user?.sub);
+
+    if (!contestId) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'contest_id is required');
+    }
+
+    const review = await contestService.getSubmissionReview(userId, Number(contestId));
+
+    return res.status(httpStatus.OK).json({
+      success: true,
+      data: review,
+    });
+  } catch (err) {
+    if (err.message === 'Submission not found for this contest') {
       return next(new ApiError(httpStatus.NOT_FOUND, err.message));
     }
     return next(err);
@@ -188,18 +257,16 @@ export const submitAnswer = async (req, res, next) => {
 export const getLeaderboard = async (req, res, next) => {
   try {
     const { id: contestId } = req.params;
-    const userId = Number(req.user?.sub);
 
     if (!contestId) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'contest_id is required');
     }
 
-    // 1. Get the leaderboard rankings from the Redis service (Super fast!)
-    const result = await leaderboardService.getContestLeaderboard(Number(contestId), userId);
+    const result = await contestService.getLeaderboard(Number(contestId));
 
     return res.status(httpStatus.OK).json({
       success: true,
-      data: result, // This contains the Top 10 and the current user's rank
+      data: result,
     });
   } catch (err) {
     return next(err);

@@ -22,13 +22,20 @@ model User {
   // Anti-cheat relations
   fraudLogs    FraudLog[]
 
+  // Subscription relation
+  subscription Subscription?
+
+  // Weekly rewards relation
+  weeklyRewards WeeklyReward[]
+
   // Field name matches requirement (`created_at`) while keeping the DB column
   // as the existing `createdAt` to avoid destructive migrations.
   created_at DateTime @default(now()) @map("createdAt")
   updatedAt DateTime @updatedAt
 
-  contests  ContestParticipant[]
-  responses Response[]
+  contests    ContestParticipant[]
+  responses   Response[]
+  submissions Submission[]
 }
 
 model Wallet {
@@ -52,20 +59,22 @@ model Transaction {
 }
 
 model Contest {
-  id              Int       @id @default(autoincrement())
-  title           String
-  entry_fee       Float
-  prize_pool      Float
-  start_time      DateTime
-  total_questions Int
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                Int       @id @default(autoincrement())
+  title             String
+  entry_fee         Float
+  prize_pool        Float
+  start_time        DateTime
+  total_questions   Int
+  duration_minutes  Int?      // Optional contest-level timer for full contest duration
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   isPrizesDistributed   Boolean   @default(false)
 
-  participants    ContestParticipant[]
-  questions       Question[]
-  responses       Response[]
-  fraudLogs       FraudLog[]
+  participants      ContestParticipant[]
+  questions         Question[]
+  responses         Response[]
+  submissions       Submission[]
+  fraudLogs         FraudLog[]
 }
 
 model ContestParticipant {
@@ -83,16 +92,47 @@ model ContestParticipant {
 }
 
 model Question {
-  id            Int      @id @default(autoincrement())
-  contestId     Int
-  text          String
-  options       Json     // Array of strings
-  correctAnswer String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  contest_id  Int
+  question    String
+  option_a    String
+  option_b    String
+  option_c    String
+  option_d    String
+  hint        String?
+  explanation String?
+  correct_ans String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  contest       Contest  @relation(fields: [contestId], references: [id])
-  responses     Response[]
+  contest     Contest  @relation(fields: [contest_id], references: [id])
+  responses   Response[]
+  answers     Answer[]
+}
+
+model Submission {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  contest_id   Int
+  score        Int
+  time_taken   Int
+  submitted_at DateTime @default(now())
+
+  user         User     @relation(fields: [user_id], references: [id])
+  contest      Contest  @relation(fields: [contest_id], references: [id])
+
+  answers      Answer[]
+}
+
+model Answer {
+  id            Int    @id @default(autoincrement())
+  submission_id Int
+  question_id   Int
+  selected_ans  String
+  is_correct    Boolean
+
+  submission Submission @relation(fields: [submission_id], references: [id])
+  question   Question   @relation(fields: [question_id], references: [id])
 }
 
 model Response {
@@ -124,4 +164,34 @@ model FraudLog {
 
   user         User     @relation(fields: [userId], references: [id])
   contest      Contest  @relation(fields: [contestId], references: [id])
+}
+
+model Subscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique // One subscription per user - enforced at DB level
+  planType  String   // 'weekly' or 'monthly'
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("active") // 'active' or 'expired'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model WeeklyReward {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  weekStart      DateTime
+  weekEnd        DateTime
+  rank           Int
+  totalScore     Int
+  contestsPlayed Int
+  averageScore   Int
+  rewardAmount   Float
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, weekStart]) // One reward per user per week
 }

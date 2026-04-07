@@ -20,43 +20,102 @@ function shuffle(array) {
  * @param {number} userId 
  * @param {number} contestId 
  */
-export const getContestQuestions = async (userId, contestId) => {
-  // 1. Fetch questions from the database for this contest
-  const questions = await prisma.question.findMany({
-    where: { contestId },
-    select: {
-      id: true,
-      text: true,
-      options: true,
-      // We do NOT select correctAnswer here to prevent cheating!
-    },
-  });
+export const getContestQuestions = async (userId, contestId, page = 1, pageSize = 10) => {
+  // 1. Fetch contest meta and question list for this contest
+  const [contest, questions] = await Promise.all([
+    prisma.contest.findUnique({ where: { id: contestId } }),
+    prisma.question.findMany({
+      where: { contest_id: contestId },
+      select: {
+        id: true,
+        question: true,
+        option_a: true,
+        option_b: true,
+        option_c: true,
+        option_d: true,
+        hint: true,
+        explanation: true,
+        // We do NOT select correct_ans here to prevent cheating!
+      },
+    }),
+  ]);
+
+  if (!contest) {
+    throw new Error('Contest not found');
+  }
+
+  const now = Date.now();
+  if (now < contest.start_time.getTime()) {
+    throw new Error('Contest has not started');
+  }
+
+  if (contest.duration_minutes) {
+    const contestEnd = contest.start_time.getTime() + contest.duration_minutes * 60000;
+    if (now > contestEnd) {
+      throw new Error('Contest has ended');
+    }
+  }
 
   if (questions.length === 0) {
     throw new Error('No questions found for this contest');
   }
 
-  // 2. Randomize the question order for this specific user
-  const shuffledQuestions = shuffle([...questions]);
-
-  // 3. Initialize/Update a Redis session to track the per-question timer
   const redis = await getRedisClient();
-  if (redis) {
-    const sessionKey = `quiz:session:${userId}:${contestId}`;
-    const now = Date.now(); // Current time in milliseconds
-    
-    const sessionData = {
-      startTime: now,
-      lastActionTime: now, // This resets every time a user gets/submits a question
-      questionOrder: shuffledQuestions.map(q => q.id),
-      currentIndex: 0,
-    };
+  const sessionKey = `quiz:session:${userId}:${contestId}`;
+  let sessionData;
 
-    // Store the session for 2 hours (plenty of time for a quiz)
-    await redis.set(sessionKey, JSON.stringify(sessionData), { EX: 7200 });
+  if (redis) {
+    const sessionRaw = await redis.get(sessionKey);
+
+    if (sessionRaw) {
+      sessionData = JSON.parse(sessionRaw);
+    } else {
+      const questionOrder = shuffle([...questions]).map((q) => q.id);
+      sessionData = {
+        startTime: now,
+        lastActionTime: now,
+        questionOrder,
+        currentIndex: 0,
+        deadline: contest.duration_minutes ? now + contest.duration_minutes * 60 * 1000 : null,
+      };
+      await redis.set(sessionKey, JSON.stringify(sessionData), { EX: 7200 });
+    }
+  } else {
+    sessionData = {
+      startTime: now,
+      lastActionTime: now,
+      questionOrder: shuffle([...questions]).map((q) => q.id),
+      currentIndex: 0,
+      deadline: contest.duration_minutes ? now + contest.duration_minutes * 60 * 1000 : null,
+    };
   }
 
-  return shuffledQuestions;
+  const orderedQuestions = sessionData.questionOrder.map((id) => questions.find((q) => q.id === id)).filter(Boolean);
+  const normalizedPage = Math.max(1, Number(page) || 1);
+  const normalizedPageSize = Math.max(1, Number(pageSize) || 10);
+  const start = (normalizedPage - 1) * normalizedPageSize;
+  const paginatedQuestions = orderedQuestions.slice(start, start + normalizedPageSize);
+
+  return {
+    contest: {
+      id: contest.id,
+      title: contest.title,
+      start_time: contest.start_time,
+      total_questions: contest.total_questions,
+      duration_minutes: contest.duration_minutes,
+    },
+    pagination: {
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      totalQuestions: orderedQuestions.length,
+      totalPages: Math.ceil(orderedQuestions.length / normalizedPageSize),
+    },
+    timeLimits: {
+      perQuestionSeconds: 15,
+      contestSecondsRemaining: sessionData.deadline ? Math.max(0, Math.round((sessionData.deadline - Date.now()) / 1000)) : null,
+    },
+    questions: paginatedQuestions,
+  };
 };
 
 /**
@@ -80,19 +139,36 @@ export const submitAnswer = async (userId, contestId, questionId, selectedOption
   }
 
   // 2. Fetch the question details and the user's current contest state
-  const [question, participant] = await Promise.all([
+  const [question, participant, contest] = await Promise.all([
     prisma.question.findUnique({ where: { id: questionId } }),
     prisma.contestParticipant.findUnique({
       where: { userId_contestId: { userId, contestId } },
     }),
+    prisma.contest.findUnique({ where: { id: contestId } }),
   ]);
 
-  if (!question || question.contestId !== contestId) {
+  if (!question || question.contest_id !== contestId) {
     throw new Error('Invalid question or contest');
   }
 
   if (!participant) {
     throw new Error('User has not joined this contest');
+  }
+
+  if (!contest) {
+    throw new Error('Contest not found');
+  }
+
+  const now = Date.now();
+  if (now < contest.start_time.getTime()) {
+    throw new Error('Contest has not started');
+  }
+
+  if (contest.duration_minutes) {
+    const contestDeadline = contest.start_time.getTime() + contest.duration_minutes * 60000;
+    if (now > contestDeadline) {
+      throw new Error('Contest has ended');
+    }
   }
 
   // 3. Timer check using Redis (15-second per-question limit)
@@ -109,6 +185,10 @@ export const submitAnswer = async (userId, contestId, questionId, selectedOption
     }
 
     const session = JSON.parse(sessionRaw);
+    if (session.deadline && Date.now() > session.deadline) {
+      throw new Error('Contest time has expired');
+    }
+
     elapsedTime = (Date.now() - session.lastActionTime) / 1000; // Calculate seconds elapsed
 
     // 15-second limit rule!
@@ -126,7 +206,7 @@ export const submitAnswer = async (userId, contestId, questionId, selectedOption
   let newStreak = 0; // How many correct in a row?
   
   // They are correct ONLY if they are NOT timed out and picked the right choice
-  const isCorrect = !isTimeout && question.correctAnswer === selectedOption;
+  const isCorrect = !isTimeout && question.correct_ans === selectedOption;
 
   if (isTimeout) {
     pointsEarned = -2; // Penalty for being too slow!

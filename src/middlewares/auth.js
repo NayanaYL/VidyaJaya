@@ -40,6 +40,7 @@ export const authenticate = async (req, res, next) => {
     // 8. Go to the NEXT thing in the chain (the controller)
     return next();
   } catch (err) {
+    console.error('[auth] JWT verification failed:', err?.message || err);
     // 9. If the token was invalid or the user is blocked, send an error
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Invalid or expired token'));
   }

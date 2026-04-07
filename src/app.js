@@ -10,6 +10,8 @@ import routes from './routes/index.js';
 import authRoutes from './routes/auth.routes.js'; 
 import contestRoutes from './routes/contest.routes.js'; 
 import walletRoutes from './routes/wallet.routes.js'; 
+import subscriptionRoutes from './routes/subscription.routes.js';
+import weeklyLeaderboardRoutes from './routes/weeklyLeaderboard.routes.js'; 
 
 // This middleware helps us catch errors and send nice messages to the user
 import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js'; 
@@ -39,6 +41,8 @@ app.use('/api', routes); // Common health check and other base routes
 app.use('/api/auth', authRoutes); // Login, Register, OTP routes
 app.use('/api/contest', contestRoutes); // Contest creation, participation, and quiz logic
 app.use('/api/wallet', walletRoutes); // Money balance, deposits, and withdrawals
+app.use('/api/subscription', subscriptionRoutes); // Subscription management
+app.use('/api/weekly-leaderboard', weeklyLeaderboardRoutes); // Weekly rankings and rewards
 
 // Also expose auth routes at root because the user requested it specifically: /auth/send-otp, /auth/verify-otp
 app.use('/auth', authRoutes); 
